@@ -11,11 +11,11 @@
 define: false, process: false, window: false */  
 define([
 //>>excludeStart('excludeAfterBuild', pragmas.excludeAfterBuild)
-'Handlebars', 'underscore', 'Handlebars/i18nprecompile', 'json2'
+'Handlebars', 'underscore', 'json2'
 //>>excludeEnd('excludeAfterBuild')
 ], function (
 //>>excludeStart('excludeAfterBuild', pragmas.excludeAfterBuild)
- Handlebars, _, precompile, JSON
+ Handlebars, _, JSON
 //>>excludeEnd('excludeAfterBuild')
 ) {
 // NOTE :: if you want to load template in production outside of the build, either precompile
@@ -282,132 +282,121 @@ define([
             }
 
             var path = parentRequire.toUrl(name + templateExtension);
-            fetchOrGetCached( parentRequire.toUrl('template/i18n/'+(config.locale || "en_us")+'.json'), function (langMap) {
-              langMap = JSON.parse(langMap);
-              fetchText(path, function (text) {
-                  // for some reason it doesn't include hbs _first_ when i don't add it here...
-                  var nodes = Handlebars.parse(text),
-                      deps = findPartialDeps( nodes ),
-                      meta = getMetaData( nodes ),
-                      extDeps = getExternalDeps( nodes ),
-                      vars = extDeps.vars,
-                      helps = extDeps.helpers || [],
-                      depStr = deps.join("', 'hbs!").replace(/_/g, '/'),
-                      helpDepStr = helps.join("', 'template/helpers/"),
-                      debugOutputStart = "",
-                      debugOutputEnd   = "",
-                      debugProperties = "",
-                      metaObj, head, linkElem;
+            fetchText(path, function (text) {
+                // for some reason it doesn't include hbs _first_ when i don't add it here...
+                var nodes = Handlebars.parse(text),
+                    deps = findPartialDeps( nodes ),
+                    meta = getMetaData( nodes ),
+                    extDeps = getExternalDeps( nodes ),
+                    vars = extDeps.vars,
+                    helps = extDeps.helpers || [],
+                    depStr = deps.join("', 'hbs!").replace(/_/g, '/'),
+                    helpDepStr = helps.join("', 'template/helpers/"),
+                    debugOutputStart = "",
+                    debugOutputEnd   = "",
+                    debugProperties = "",
+                    metaObj, head, linkElem,
+                    environment, prec, options = {};
 
-                  
-                  if ( depStr ) {
-                    depStr = ",'hbs!" + depStr + "'";
-                  }
-                  if ( helpDepStr ) {
-                    helpDepStr = ",'template/helpers/" + helpDepStr + "'";
-                  }
 
-                  
-                  if ( meta !== "{}" ) {
-                    try {
-                      metaObj = JSON.parse(meta);
-                      if ( metaObj && metaObj.styles ) {
-                        styleList = _.union(styleList, metaObj.styles);
+                if ( depStr ) {
+                  depStr = ",'hbs!" + depStr + "'";
+                }
+                if ( helpDepStr ) {
+                  helpDepStr = ",'template/helpers/" + helpDepStr + "'";
+                }
 
-                        // In dev mode in the browser
-                        if ( require.isBrowser && ! config.isBuild ) {
-                          head = document.head || document.getElementsByTagName('head')[0];
-                          _(metaObj.styles).forEach(function (style) {
-                            if ( !styleMap[style] ) {
-                              linkElem = document.createElement('link');
-                              linkElem.href = config.baseUrl + 'styles/' + style + '.css';
-                              linkElem.media = 'all';
-                              linkElem.rel = 'stylesheet';
-                              linkElem.type = 'text/css';
-                              head.appendChild(linkElem);
-                              styleMap[style] = linkElem;
-                            }
+
+                if ( meta !== "{}" ) {
+                  try {
+                    metaObj = JSON.parse(meta);
+                    if ( metaObj && metaObj.styles ) {
+                      styleList = _.union(styleList, metaObj.styles);
+
+                      // In dev mode in the browser
+                      if ( require.isBrowser && ! config.isBuild ) {
+                        head = document.head || document.getElementsByTagName('head')[0];
+                        _(metaObj.styles).forEach(function (style) {
+                          if ( !styleMap[style] ) {
+                            linkElem = document.createElement('link');
+                            linkElem.href = config.baseUrl + 'styles/' + style + '.css';
+                            linkElem.media = 'all';
+                            linkElem.rel = 'stylesheet';
+                            linkElem.type = 'text/css';
+                            head.appendChild(linkElem);
+                            styleMap[style] = linkElem;
+                          }
+                        });
+                      }
+                      else if ( config.isBuild ) {
+                        (function(){
+                          var fs  = require.nodeRequire('fs'),
+                              str = _(metaObj.styles).map(function (style) {
+                                if (!styleMap[style]) {
+                                  styleMap[style] = true;
+                                  return "@import url("+buildStyleDirectory+style+".css);\n";
+                                }
+                                return "";
+                              }).join("\n");
+
+                          // I write out my import statements to a file in order to help me build stuff.
+                          // Then I use a tool to inline my import statements afterwards. (you can run r.js on it too)
+                          fs.open(__dirname + buildStyleDirectory + buildCSSFileName, filecode, '0666', function( e, id ) {
+                            fs.writeSync(id, str, null, encoding='utf8');
+                            fs.close(id);
                           });
-                        }
-                        else if ( config.isBuild ) {
-                          (function(){
-                            var fs  = require.nodeRequire('fs'),
-                                str = _(metaObj.styles).map(function (style) {
-                                  if (!styleMap[style]) {
-                                    styleMap[style] = true;
-                                    return "@import url("+buildStyleDirectory+style+".css);\n";
-                                  }
-                                  return "";
-                                }).join("\n");
-
-                            // I write out my import statements to a file in order to help me build stuff.
-                            // Then I use a tool to inline my import statements afterwards. (you can run r.js on it too)
-                            fs.open(__dirname + buildStyleDirectory + buildCSSFileName, filecode, '0666', function( e, id ) {
-                              fs.writeSync(id, str, null, encoding='utf8');
-                              fs.close(id);
-                            });
-                            filecode = "a";
-                          })();
-                        }
+                          filecode = "a";
+                        })();
                       }
                     }
-                    catch(e){
-                      console.log('error injecting styles');
-                    } 
                   }
-                  
-                  if ( ! config.isBuild && ! config.serverRender ) {
-                    debugOutputStart = "<!-- START - " + name + " -->";
-                    debugOutputEnd = "<!-- END - " + name + " -->";
-                    debugProperties = "t.meta = " + meta + ";\n" +
-                                      "t.helpers = " + JSON.stringify(helps) + ";\n" +
-                                      "t.deps = " + JSON.stringify(deps) + ";\n" +
-                                      "t.vars = " + JSON.stringify(vars) + ";\n";
+                  catch(e){
+                    console.log('error injecting styles');
                   }
+                }
 
-                  var prec = precompile( text, _.extend( langMap, config.localeMapping ) );
-                  
-                  text = "/* START_TEMPLATE */\n" +
-                         "define(['hbs','Handlebars'"+depStr+helpDepStr+"], function( hbs, Handlebars ){ \n" +
-                           "var t = Handlebars.template(" + prec + ");\n" +
-                           "Handlebars.registerPartial('" + name.replace( /\//g , '_') + "', t);\n" +
-                           debugProperties +
-                           "return t;\n" +
-                         "});\n" +
-                         "/* END_TEMPLATE */\n";
+                if ( ! config.isBuild && ! config.serverRender ) {
+                  debugOutputStart = "<!-- START - " + name + " -->";
+                  debugOutputEnd = "<!-- END - " + name + " -->";
+                  debugProperties = "t.meta = " + meta + ";\n" +
+                                    "t.helpers = " + JSON.stringify(helps) + ";\n" +
+                                    "t.deps = " + JSON.stringify(deps) + ";\n" +
+                                    "t.vars = " + JSON.stringify(vars) + ";\n";
+                }
 
-                  //Hold on to the transformed text if a build.
-                  if (config.isBuild) {
-                      buildMap[compiledName] = text;
+                environment = new Handlebars.Compiler().compile(nodes, options);
+                prec = new Handlebars.JavaScriptCompiler().compile(environment, options);
+
+                text = "/* START_TEMPLATE */\n" +
+                       "define(['hbs','Handlebars'"+depStr+helpDepStr+"], function( hbs, Handlebars ){ \n" +
+                         "var t = Handlebars.template(" + prec + ");\n" +
+                         "Handlebars.registerPartial('" + name.replace( /\//g , '_') + "', t);\n" +
+                         debugProperties +
+                         "return t;\n" +
+                       "});\n" +
+                       "/* END_TEMPLATE */\n";
+
+                //Hold on to the transformed text if a build.
+                if (config.isBuild) {
+                    buildMap[compiledName] = text;
+                }
+
+                //IE with conditional comments on cannot handle the
+                //sourceURL trick, so skip it if enabled.
+                /*@if (@_jscript) @else @*/
+                if (!config.isBuild) {
+                    text += "\r\n//@ sourceURL=" + path;
+                }
+                /*@end@*/
+
+                for ( var i in deps ) {
+                  if ( deps.hasOwnProperty(i) ) {
+                    deps[ i ] = 'hbs!' + deps[ i ].replace(/_/g, '/');
                   }
+                }
 
-                  //IE with conditional comments on cannot handle the
-                  //sourceURL trick, so skip it if enabled.
-                  /*@if (@_jscript) @else @*/
-                  if (!config.isBuild) {
-                      text += "\r\n//@ sourceURL=" + path;
-                  }
-                  /*@end@*/
-
-                  for ( var i in deps ) {
-                    if ( deps.hasOwnProperty(i) ) {
-                      deps[ i ] = 'hbs!' + deps[ i ].replace(/_/g, '/');
-                    }
-                  }
-
-                  if ( !config.isBuild ) {
-                    require( deps, function (){
-                      load.fromText(compiledName, text);
-
-                      //Give result to load. Need to wait until the module
-                      //is fully parse, which will happen after this
-                      //execution.
-                      parentRequire([compiledName], function (value) {
-                        load(value);
-                      });
-                    });
-                  }
-                  else {
+                if ( !config.isBuild ) {
+                  require( deps, function (){
                     load.fromText(compiledName, text);
 
                     //Give result to load. Need to wait until the module
@@ -416,8 +405,18 @@ define([
                     parentRequire([compiledName], function (value) {
                       load(value);
                     });
-                  }
-              });
+                  });
+                }
+                else {
+                  load.fromText(compiledName, text);
+
+                  //Give result to load. Need to wait until the module
+                  //is fully parse, which will happen after this
+                  //execution.
+                  parentRequire([compiledName], function (value) {
+                    load(value);
+                  });
+                }
             });
           //>>excludeEnd('excludeAfterBuild')
         }
